@@ -1,9 +1,13 @@
 import email
+import logging
 import os
 import re
 
 import boto3
 from anthropic import Anthropic
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 client = Anthropic()
 s3 = boto3.client("s3")
@@ -89,12 +93,15 @@ def lambda_handler(event, _context):
     message_id = mail_meta["messageId"]
     sender = mail_meta["source"]
     subject = mail_meta["commonHeaders"].get("subject", "Trail Assistant")
+    logger.info("Received email from %s, message_id=%s", sender, message_id)
 
     raw_email = _fetch_raw_email(message_id)
     body_text = _extract_text_body(raw_email)
     query = _parse_inreach_body(body_text)
+    logger.info("Parsed query: %r", query)
 
     if not query:
+        logger.warning("Empty query, skipping")
         return {"statusCode": 200, "body": "empty query, skipping"}
 
     message = client.messages.create(
@@ -105,10 +112,12 @@ def lambda_handler(event, _context):
     )
 
     response_text = message.content[0].text.strip()
+    logger.info("Claude response: %r", response_text)
     chunks = _chunk_response(response_text)
 
     reply_subject = subject if subject.startswith("Re:") else f"Re: {subject}"
     for chunk in chunks:
         _send_reply(sender, reply_subject, chunk)
+    logger.info("Reply sent to %s", sender)
 
     return {"statusCode": 200, "body": "ok"}
