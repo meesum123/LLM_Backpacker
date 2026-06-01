@@ -34,8 +34,15 @@ _INREACH_SEPARATORS = [
 ]
 
 S3_BUCKET = os.environ["S3_BUCKET_NAME"]
-S3_PREFIX = os.environ.get("S3_EMAIL_PREFIX", "")  # e.g. "emails/" if set in SES rule
+S3_PREFIX = os.environ.get("S3_EMAIL_PREFIX", "")
 FROM_EMAIL = os.environ["SES_FROM_EMAIL"]
+
+# Comma-separated list of allowed sender addresses, e.g. "a@b.com,c@d.com"
+_ALLOWED_SENDERS = {
+    addr.strip().lower()
+    for addr in os.environ.get("ALLOWED_SENDERS", "").split(",")
+    if addr.strip()
+}
 
 
 def _fetch_raw_email(message_id: str) -> str:
@@ -94,6 +101,10 @@ def lambda_handler(event, _context):
     sender = mail_meta["source"]
     subject = mail_meta["commonHeaders"].get("subject", "Trail Assistant")
     logger.info("Received email from %s, message_id=%s", sender, message_id)
+
+    if _ALLOWED_SENDERS and sender.lower() not in _ALLOWED_SENDERS:
+        logger.warning("Rejected sender: %s", sender)
+        return {"statusCode": 200, "body": "sender not allowed"}
 
     raw_email = _fetch_raw_email(message_id)
     body_text = _extract_text_body(raw_email)
